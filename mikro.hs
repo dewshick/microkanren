@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 import Control.Monad
 import Control.Applicative
 
@@ -27,37 +28,15 @@ unify u v s = un (walk u s) (walk v s)
 -- 2. KList MonadPlus, lazy interleaving stream of substitutions
 -- do we need to keep Delay? maybe we'd be better off redefining MonadPlus for list?
 
-data KList a = Nil | Cons a (KList a) | Delay (KList a)
-delay = Delay
-
-instance Functor KList where
-  fmap f a = error "FUCK OFF, HASKELL"
-
-instance Applicative KList where
-  f <*> a = error "FUCK OFF, HASKELL"
-  pure x = Cons x Nil
-
-instance Alternative KList where
-  a <|> b = error "you know, right?"
-  empty = mzero
-
+newtype KList a = KList { getList :: [a] } deriving (Functor, Applicative, Alternative, Show)
 instance Monad KList where
-  Nil >>= f = mzero
-  x `Cons` xs >>= f = f x `mplus` (xs >>= f)
-  Delay xs >>= f = Delay $ xs >>= f
+  KList [] >>= f = mzero
+  KList (x:xs) >>= f = f x `mplus` (KList xs >>= f)
 
 instance MonadPlus KList where
-  mzero = Nil
-  Nil `mplus` xs = xs
-  (x `Cons` xs) `mplus` ys = x `Cons` (ys `mplus` xs) -- swapped per sect. 6
-  Delay xs `mplus` ys = Delay (ys `mplus` xs)
-
-kToList Nil = []
-kToList (Cons x xs) = x:(kToList xs)
-kToList (Delay xs) = kToList xs
-
-instance Show a => Show (KList a) where
-  show xs = show $ kToList xs
+  mzero = KList []
+  (KList []) `mplus` (KList xs) = KList xs
+  (KList (x:xs)) `mplus` (KList ys) = KList $ x:(ys `mplus` xs)
 
 -- 3. MicroKanren operators & progrm-related types
 
@@ -87,13 +66,18 @@ callForall f = error "dunno"
 -- 4. run, run-star and so on
 
 getAllSolutions :: (Term -> Goal) -> [State]
-getAllSolutions f = kToList $ (callFresh f) emptyState
+getAllSolutions f = getList $ callFresh f emptyState
 
 --getNSolutions :: Integer -> (Term -> Goal) -> 
 --getFirstSolution :: Term -> Goal -> 
 
 emptyState = ([], 0)
-five =  (\x -> x === (Atom "5"))
+
+
+-- Tests
+
+five =  (=== (Atom "5"))
+fives_ x = x === (Atom "5") ||| (fives_ x)
 
 -- bugs related to unification ordering (they want variable on the left for some reason)
 

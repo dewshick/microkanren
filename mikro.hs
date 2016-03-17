@@ -6,7 +6,7 @@ import Control.Applicative
 
 type Var = Integer
 type Subst = [(Var, Term)]
-data Term = Atom String | Pair Term Term | Var Var deriving Show
+data Term = Atom String | Pair Term Term | Var Var deriving (Show, Eq)
 
 walk :: Term -> Subst -> Term
 walk (Var x) s = case lookup x s of Nothing -> Var x
@@ -38,9 +38,14 @@ instance MonadPlus KList where
   (KList []) `mplus` (KList xs) = KList xs
   (KList (x:xs)) `mplus` (KList ys) = KList $ x:(ys `mplus` xs)
 
+liftKList f = KList . f . getList
+
 -- 3. MicroKanren operators & progrm-related types
 
 type State = (Subst, Integer)
+getSubst = fst
+getCounter = snd
+
 type Goal = State -> KList State
 
 infixr 4 ===
@@ -60,13 +65,20 @@ p1 &&& p2 = \sc -> (p1 sc) >>= p2
 callFresh :: (Term -> Goal) -> Goal
 callFresh f = \(s, c) -> f (Var c) (s, c+1)
 
-callForall :: (Term -> Goal) -> Goal
-callForall f = error "dunno"
+callFree :: (Term -> Goal) -> Goal
+callFree f = \(s, c) -> let freeVar = Var c
+                            isNotBound = \(s', c') -> walk freeVar s' == freeVar
+                        in liftKList (filter isNotBound) $ callFresh f (s, c)
+
+--(filter (\st -> walk (Var c) st)) (callFresh f (s, c))
 
 -- 4. run, run-star and so on
 
 getAllSolutions :: (Term -> Goal) -> [State]
 getAllSolutions f = getList $ callFresh f emptyState
+
+getSolutionForGoal :: Goal -> [State]
+getSolutionForGoal g = getList $ g emptyState
 
 --getNSolutions :: Integer -> (Term -> Goal) -> 
 --getFirstSolution :: Term -> Goal -> 
@@ -77,7 +89,14 @@ emptyState = ([], 0)
 -- Tests
 
 five =  (=== (Atom "5"))
-fives_ x = x === (Atom "5") ||| (fives_ x)
+fives_ x = x === (Atom "5") ||| (fives_ x) ||| (sixes_ x)
+sixes_ x = x === (Atom "6") ||| (fives_ x)
+
+a_and_b = (callFresh (\a -> a === Atom "7")) &&& (callFresh (\b -> b === Atom "5" ||| b === Atom "6"))
+
+boundForall = callFree (\a -> a === Atom "7")
+unboundForall = callFree (\a -> callFresh (\b -> b === Pair a a))
+boundWithExistential = callFresh (\a -> callFree (\b -> b === Pair a a))
 
 -- bugs related to unification ordering (they want variable on the left for some reason)
 
